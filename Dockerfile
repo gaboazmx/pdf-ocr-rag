@@ -37,7 +37,8 @@ EXPOSE 5000
 # Comando de inicio (Render usa la env var PORT)
 CMD gunicorn app:app \
     --bind 0.0.0.0:${PORT:-5000} \
-    --workers 2 \
+    --workers 1 \
+    --threads 4 \
     --timeout 300 \
     --worker-class sync \
     --access-logfile - \
