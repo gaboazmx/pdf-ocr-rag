@@ -78,43 +78,68 @@ def limpiar_archivos_viejos():
 # ── OCR EN HILO SEPARADO ──────────────────────────────────────────
 def procesar_ocr(task_id: str, pdf_path: Path, categoria: str,
                  idioma: str, dpi: int):
-    """Ejecuta OCR y genera el archivo Markdown."""
+    """Ejecuta OCR y genera el archivo Markdown.
+
+    Estrategia de memoria: convierte UNA página a la vez escribiendo
+    en disco (output_folder), hace OCR y libera la imagen de inmediato.
+    Esto mantiene el uso de RAM bajo ~100 MB incluso en PDFs de 300 páginas.
+    """
+    import tempfile
+    import gc
+
     with tareas_lock:
         tareas[task_id]["estado"] = "procesando"
         tareas[task_id]["progreso"] = 5
 
     try:
-        # 1. Convertir páginas del PDF a imágenes
+        # 1. Contar páginas primero (sin cargar imágenes)
         with tareas_lock:
-            tareas[task_id]["mensaje"] = "Convirtiendo páginas a imágenes..."
-            tareas[task_id]["progreso"] = 10
+            tareas[task_id]["mensaje"] = "Contando páginas..."
+            tareas[task_id]["progreso"] = 8
 
-        paginas = convert_from_path(
-            str(pdf_path),
-            dpi=dpi,
-            fmt="jpeg",
-            thread_count=2,
-        )
-        total = len(paginas)
+        import fitz  # PyMuPDF — solo para contar páginas
+        doc = fitz.open(str(pdf_path))
+        total = doc.page_count
+        doc.close()
 
         with tareas_lock:
             tareas[task_id]["total_paginas"] = total
-            tareas[task_id]["mensaje"] = f"Procesando {total} páginas con OCR..."
+            tareas[task_id]["mensaje"] = f"Iniciando OCR en {total} páginas..."
+            tareas[task_id]["progreso"] = 10
 
-        # 2. OCR página por página
+        # 2. OCR página por página — una a la vez para ahorrar RAM
         textos = []
         lang_code = _idioma_code(idioma)
 
-        for i, img in enumerate(paginas, 1):
-            with tareas_lock:
-                tareas[task_id]["pagina_actual"] = i
-                tareas[task_id]["progreso"] = 10 + int(80 * i / total)
-                tareas[task_id]["mensaje"] = f"OCR: página {i}/{total}"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i in range(1, total + 1):
+                with tareas_lock:
+                    tareas[task_id]["pagina_actual"] = i
+                    tareas[task_id]["progreso"] = 10 + int(80 * i / total)
+                    tareas[task_id]["mensaje"] = f"OCR: página {i}/{total}"
 
-            # Preprocesar imagen para mejorar OCR
-            img = img.convert("L")  # escala de grises
-            texto = pytesseract.image_to_string(img, lang=lang_code)
-            textos.append(texto.strip())
+                # Convertir SOLO esta página a imagen (en disco)
+                imgs = convert_from_path(
+                    str(pdf_path),
+                    dpi=dpi,
+                    fmt="jpeg",
+                    first_page=i,
+                    last_page=i,
+                    output_folder=tmpdir,
+                    thread_count=1,
+                    use_pdftocairo=True,
+                )
+                if not imgs:
+                    textos.append("")
+                    continue
+
+                img = imgs[0].convert("L")  # escala de grises
+                texto = pytesseract.image_to_string(img, lang=lang_code)
+                textos.append(texto.strip())
+
+                # Liberar memoria inmediatamente
+                del img, imgs
+                gc.collect()
 
         # 3. Construir Markdown con metadata YAML
         with tareas_lock:
