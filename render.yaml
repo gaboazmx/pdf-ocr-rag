@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pdf-ocr-rag
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PORT
+        value: "5000"
+    healthCheckPath: /ping
+    autoDeploy: true

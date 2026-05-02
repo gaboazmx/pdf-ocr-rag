@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF OCR → Markdown | RAG Jurídico</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e334d;
+      --accent: #6366f1;
+      --accent2: #818cf8;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    header .logo { font-size: 22px; font-weight: 700; color: var(--accent2); letter-spacing: -0.5px; }
+    header .subtitle { font-size: 13px; color: var(--muted); }
+    header .badge {
+      margin-left: auto;
+      background: #1e293b;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    header .badge a { color: var(--accent2); text-decoration: none; }
+    header .badge a:hover { text-decoration: underline; }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+
+    .notice {
+      background: linear-gradient(135deg, #1e1b4b 0%, #1a1d27 100%);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 13.5px;
+      color: var(--accent2);
+      margin-bottom: 28px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .notice a { color: #a5b4fc; }
+
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 56px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: var(--surface);
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: #1e1b4b22;
+    }
+    .upload-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 42px; margin-bottom: 12px; }
+    .upload-zone h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+    .upload-zone p { font-size: 13px; color: var(--muted); }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 20px;
+    }
+    @media (max-width: 600px) { .options-grid { grid-template-columns: 1fr; } }
+
+    .opt-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; letter-spacing: .4px; text-transform: uppercase; }
+    .opt-group select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 7px;
+      font-size: 13.5px;
+      appearance: none;
+      cursor: pointer;
+    }
+    .opt-group select:focus { outline: none; border-color: var(--accent); }
+
+    .btn-ocr {
+      margin-top: 22px;
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .btn-ocr:hover { background: #4f46e5; }
+    .btn-ocr:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── PROGRESS ── */
+    #progress-section { display: none; margin-top: 28px; }
+    .progress-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .progress-header .filename { font-size: 14px; font-weight: 600; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .progress-pct { font-size: 13px; color: var(--accent2); font-weight: 600; }
+    .progress-bar-bg { background: var(--surface2); border-radius: 6px; height: 8px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 6px; transition: width .3s; }
+    .progress-msg { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+    .progress-pages { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* ── RESULT ── */
+    #result-section { display: none; margin-top: 28px; }
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--green);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .result-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .result-icon { font-size: 24px; }
+    .result-title { font-size: 16px; font-weight: 600; color: var(--green); }
+    .result-meta { font-size: 12.5px; color: var(--muted); }
+    .btn-download {
+      margin-top: 14px;
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--green);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 11px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .btn-download:hover { opacity: .85; }
+    .btn-another {
+      margin-left: 10px;
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 11px 20px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-another:hover { background: var(--border); }
+
+    /* ── ERROR ── */
+    #error-section { display: none; margin-top: 22px; }
+    .error-card {
+      background: #2d1515;
+      border: 1px solid var(--red);
+      border-radius: var(--radius);
+      padding: 18px;
+      font-size: 13.5px;
+      color: #fca5a5;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 28px;
+      font-size: 12px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      margin-top: 48px;
+    }
+    footer a { color: var(--accent2); text-decoration: none; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--accent2); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">📄 PDF OCR → Markdown</div>
+    <div class="subtitle">Para PDFs escaneados — Sistema RAG Jurídico</div>
+  </div>
+  <div class="badge">
+    ¿PDF con texto seleccionable? →
+    <a href="https://gaboazmx.github.io/pdf2md/" target="_blank">Usa pdf2md ↗</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="notice">
+    <span>🔍</span>
+    <span>Esta app aplica <strong>OCR (Tesseract)</strong> a PDFs escaneados o basados en imagen.
+    Para PDFs con texto seleccionable, usa
+    <a href="https://gaboazmx.github.io/pdf2md/" target="_blank">pdf2md (más rápido)</a>.</span>
+  </div>
+
+  <form id="upload-form">
+
+    <div class="upload-zone" id="drop-zone">
+      <input type="file" id="pdf-input" name="pdf" accept=".pdf" required>
+      <div class="upload-icon">🗂️</div>
+      <h2 id="drop-label">Arrastra tu PDF escaneado aquí</h2>
+      <p>o haz clic para seleccionarlo · Máximo 100 MB</p>
+    </div>
+
+    <div class="options-grid" style="margin-top:20px">
+      <div class="opt-group">
+        <label>Categoría del corpus</label>
+        <select name="categoria" id="sel-cat">
+          {% for val, label in categorias %}
+          <option value="{{ val }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="opt-group">
+        <label>Idioma OCR</label>
+        <select name="idioma" id="sel-idioma">
+          <option value="español + inglés" selected>Español + Inglés</option>
+          <option value="español">Solo Español</option>
+          <option value="inglés">Solo Inglés</option>
+          <option value="francés">Francés</option>
+          <option value="portugués">Portugués</option>
+        </select>
+      </div>
+      <div class="opt-group">
+        <label>DPI (calidad OCR)</label>
+        <select name="dpi" id="sel-dpi">
+          <option value="150">150 dpi — rápido</option>
+          <option value="200">200 dpi</option>
+          <option value="300" selected>300 dpi — recomendado</option>
+          <option value="400">400 dpi — alta calidad</option>
+        </select>
+      </div>
+    </div>
+
+    <button type="submit" class="btn-ocr" id="btn-submit">
+      🔍 Iniciar OCR
+    </button>
+
+  </form>
+
+  <!-- Progreso -->
+  <div id="progress-section">
+    <div class="progress-card">
+      <div class="progress-header">
+        <span class="filename" id="prog-filename">—</span>
+        <span class="progress-pct" id="prog-pct">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="prog-bar" style="width:0%"></div>
+      </div>
+      <div class="progress-msg" id="prog-msg"><span class="spinner"></span> Iniciando…</div>
+      <div class="progress-pages" id="prog-pages"></div>
+    </div>
+  </div>
+
+  <!-- Resultado -->
+  <div id="result-section">
+    <div class="result-card">
+      <div class="result-header">
+        <span class="result-icon">✅</span>
+        <div>
+          <div class="result-title">¡OCR completado!</div>
+          <div class="result-meta" id="result-meta">—</div>
+        </div>
+      </div>
+      <a class="btn-download" id="btn-dl" href="#" download>⬇ Descargar .md</a>
+      <button class="btn-another" onclick="resetForm()">Procesar otro PDF</button>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-section">
+    <div class="error-card" id="error-msg">Error desconocido.</div>
+    <button class="btn-another" style="margin-top:12px" onclick="resetForm()">Intentar de nuevo</button>
+  </div>
+
+</div><!-- /container -->
+
+<footer>
+  <p>
+    <strong>Sistema RAG Jurídico</strong> — Gabriel Aranda Zamacona ·
+    Abogado Corporativo · Litigante Contencioso Administrativo Federal<br>
+    <a href="https://gaboazmx.github.io/pdf2md/" target="_blank">pdf2md</a> ·
+    OCR powered by Tesseract
+  </p>
+</footer>
+
+<script>
+const form       = document.getElementById("upload-form");
+const dropZone   = document.getElementById("drop-zone");
+const fileInput  = document.getElementById("pdf-input");
+const btnSubmit  = document.getElementById("btn-submit");
+const progSec    = document.getElementById("progress-section");
+const resultSec  = document.getElementById("result-section");
+const errorSec   = document.getElementById("error-section");
+
+let pollInterval = null;
+let currentTaskId = null;
+
+// ── Drag & drop ──────────────────────────────────────────────────
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  if (e.dataTransfer.files[0]) {
+    fileInput.files = e.dataTransfer.files;
+    document.getElementById("drop-label").textContent = e.dataTransfer.files[0].name;
+  }
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) document.getElementById("drop-label").textContent = fileInput.files[0].name;
+});
+
+// ── Submit ────────────────────────────────────────────────────────
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!fileInput.files[0]) { alert("Selecciona un PDF primero."); return; }
+
+  const fd = new FormData(form);
+  btnSubmit.disabled = true;
+  btnSubmit.innerHTML = '<span class="spinner"></span> Subiendo…';
+
+  hide(resultSec); hide(errorSec);
+  show(progSec);
+  document.getElementById("prog-filename").textContent = fileInput.files[0].name;
+
+  try {
+    const res = await fetch("/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error al subir el archivo");
+    currentTaskId = data.task_id;
+    pollInterval = setInterval(pollStatus, 1500);
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+// ── Polling ───────────────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const res = await fetch(`/status/${currentTaskId}`);
+    if (!res.ok) throw new Error("No se pudo consultar el estado");
+    const d = await res.json();
+
+    document.getElementById("prog-pct").textContent  = d.progreso + "%";
+    document.getElementById("prog-bar").style.width  = d.progreso + "%";
+    document.getElementById("prog-msg").innerHTML    = d.mensaje;
+    if (d.total_paginas > 0)
+      document.getElementById("prog-pages").textContent =
+        `Páginas: ${d.pagina_actual} / ${d.total_paginas}`;
+
+    if (d.estado === "listo") {
+      clearInterval(pollInterval);
+      hide(progSec);
+      show(resultSec);
+      const chars = d.caracteres.toLocaleString("es-MX");
+      document.getElementById("result-meta").textContent =
+        `${d.total_paginas} páginas · ${chars} caracteres · ${d.nombre_descarga}`;
+      const dlBtn = document.getElementById("btn-dl");
+      dlBtn.href = `/download/${currentTaskId}`;
+      dlBtn.setAttribute("download", d.nombre_descarga);
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = "🔍 Iniciar OCR";
+    } else if (d.estado === "error") {
+      clearInterval(pollInterval);
+      showError(d.mensaje);
+    }
+  } catch (err) {
+    clearInterval(pollInterval);
+    showError(err.message);
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+function show(el) { el.style.display = "block"; }
+function hide(el) { el.style.display = "none"; }
+
+function showError(msg) {
+  hide(progSec); hide(resultSec);
+  show(errorSec);
+  document.getElementById("error-msg").textContent = "❌ " + msg;
+  btnSubmit.disabled = false;
+  btnSubmit.textContent = "🔍 Iniciar OCR";
+}
+
+function resetForm() {
+  hide(resultSec); hide(errorSec); hide(progSec);
+  fileInput.value = "";
+  document.getElementById("drop-label").textContent = "Arrastra tu PDF escaneado aquí";
+  currentTaskId = null;
+  if (pollInterval) clearInterval(pollInterval);
+}
+</script>
+</body>
+</html>
